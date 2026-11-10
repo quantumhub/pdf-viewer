@@ -1,0 +1,1683 @@
+<!-- https://github.com/quantumhub/pdf-viewer -->
+<!-- Quantum Hub's PDF Viewer: A HTML and pdf.js based Advanced PDF viewer with customized searching fuction -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom PDF Viewer with Search + Results Panel</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/web/pdf_viewer.css">
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ---------------- Side panel (left) ---------------- */
+    #results-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 300px;
+      background: #2b2b2b;
+      color: #ddd;
+      display: flex;
+      flex-direction: column;
+      z-index: 900;
+      font-family: sans-serif;
+      font-size: 12px;
+      border-right: 1px solid #111;
+    }
+
+    /* --- Tabs --- */
+    #panel-tabs {
+      display: flex;
+      flex: 0 0 auto;
+      background: #1f1f1f;
+      border-bottom: 1px solid #111;
+    }
+    .panel-tab {
+      flex: 1 1 0;
+      padding: 9px 6px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #9a9a9a;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .02em;
+      cursor: pointer;
+      transition: color .12s ease, background .12s ease, border-color .12s ease;
+    }
+    .panel-tab:hover {
+      background: #2a2a2a;
+      color: #ddd;
+    }
+    .panel-tab.active {
+      color: #fff;
+      background: #2b2b2b;
+      border-bottom-color: #6aa9ff;
+    }
+    .panel-tab:focus-visible {
+      outline: 2px solid #6aa9ff;
+      outline-offset: -2px;
+    }
+
+    /* --- Header (label + count) --- */
+    #panel-header {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      background: #1f1f1f;
+      border-bottom: 1px solid #111;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: #9a9a9a;
+    }
+    #panel-count {
+      font-variant-numeric: tabular-nums;
+      color: #9ecbff;
+    }
+
+    /* --- Scrollable bodies --- */
+    #results-list,
+    #bookmarks-list {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+    }
+
+    /* ---------------- Search result items ---------------- */
+    .result-item {
+      padding: 8px 12px;
+      border-bottom: 1px solid #3a3a3a;
+      cursor: pointer;
+      line-height: 1.45;
+      transition: background .08s ease;
+    }
+    .result-item:hover {
+      background: #3a3a3a;
+    }
+    .result-item.active {
+      background: #2f5d9e;
+      color: #fff;
+    }
+    .result-page {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      opacity: .65;
+      margin-bottom: 3px;
+    }
+    .result-snippet {
+      word-break: break-word;
+      color: #c9c9c9;
+    }
+    .result-item.active .result-snippet {
+      color: #eaf2ff;
+    }
+    .result-snippet mark {
+      background: rgba(255, 220, 0, .45);
+      color: inherit;
+      padding: 0 1px;
+      border-radius: 2px;
+    }
+    .result-item.active .result-snippet mark {
+      background: rgba(255, 255, 255, .45);
+      color: #fff;
+    }
+    .results-empty {
+      padding: 16px 12px;
+      color: #888;
+      font-style: italic;
+      line-height: 1.5;
+    }
+
+    /* ---------------- Bookmark tree ---------------- */
+    .bookmark-children[hidden] {
+      display: none;
+    }
+    .bookmark-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
+      padding: 5px 10px 5px 0;
+      cursor: pointer;
+      line-height: 1.4;
+      color: #cfcfcf;
+      transition: background .08s ease;
+      user-select: none;
+    }
+    .bookmark-row:hover {
+      background: #3a3a3a;
+    }
+    .bookmark-row.active {
+      background: #2f5d9e;
+      color: #fff;
+    }
+    .bookmark-row:focus-visible {
+      outline: 2px solid #6aa9ff;
+      outline-offset: -2px;
+    }
+    .bookmark-toggle {
+      flex: 0 0 12px;
+      width: 12px;
+      text-align: center;
+      font-size: 10px;
+      line-height: 1.6;
+      opacity: .75;
+    }
+    .bookmark-toggle.leaf {
+      visibility: hidden;
+    }
+    .bookmark-title {
+      flex: 1 1 auto;
+      word-break: break-word;
+    }
+
+    /* --- Match counter shown next to a bookmark title --- */
+    .bookmark-count {
+      flex: 0 0 auto;
+      margin-left: 6px;
+      padding: 0 6px;
+      border-radius: 9px;
+      background: #464646;
+      color: #d8d8d8;
+      font-size: 10.5px;
+      line-height: 16px;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      white-space: nowrap;
+      box-shadow: 0 0 0 1px transparent;   /* ring, does not affect layout */
+      transition: background .12s ease, color .12s ease;
+    }
+
+    /* Parent section (it has sub-sections) — steel blue ring */
+    .bookmark-count.parent {
+      background: #2f4f77;
+      color: #dbe8ff;
+      box-shadow: 0 0 0 1px #5586c4;
+    }
+
+    /* Very-sub section (deepest / leaf, no children) — bright orange ring */
+    .bookmark-count.leaf {
+      background: #ff7a00;
+      color: #1c1200;
+      font-weight: 700;
+      box-shadow: 0 0 0 1px #ffb066;
+    }
+
+    .bookmark-count[hidden] {
+      display: none;
+    }
+
+    .bookmark-row:hover .bookmark-count.parent { background: #3b6396; }
+    .bookmark-row:hover .bookmark-count.leaf   { background: #ff9124; }
+
+    /* Keep the colours readable on the selected (blue) row */
+    .bookmark-row.active .bookmark-count.parent,
+    .bookmark-row.active:hover .bookmark-count.parent {
+      background: rgba(255, 255, 255, .3);
+      color: #fff;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, .75);
+    }
+    .bookmark-row.active .bookmark-count.leaf,
+    .bookmark-row.active:hover .bookmark-count.leaf {
+      background: #ffa640;
+      color: #241200;
+      box-shadow: 0 0 0 1px #fff;
+    }
+
+    /* ---------------- Toolbar (spans the viewer area) ---------------- */
+    #toolbar {
+      position: fixed;
+      top: 10px;
+      left: 310px;              /* results panel is 300px + 10px gutter */
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+      pointer-events: none;     /* clicks fall through the empty parts */
+      font-family: sans-serif;
+      font-size: 14px;
+    }
+    #toolbar > * {
+      pointer-events: auto;
+    }
+
+    /* --- File opener (left-most gadget) --- */
+    #file-open {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 13px;
+      border-radius: 8px;
+      background: #333;
+      color: #fff;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+      transition: background .12s ease;
+    }
+    #file-open:hover {
+      background: #454545;
+    }
+    #file-open:focus-within {
+      outline: 2px solid #6aa9ff;
+      outline-offset: 2px;
+    }
+    /* Visually hidden but still focusable / clickable via the label */
+    #file-open input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      opacity: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    #file-open .file-icon {
+      font-size: 15px;
+      line-height: 1;
+    }
+
+    #file-name {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 5px 9px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, .35);
+      color: #e6e6e6;
+      font-size: 12px;
+    }
+    #file-name:empty {
+      display: none;
+    }
+
+    /* --- Search bar (centred inside the toolbar) --- */
+    #search-bar {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #333;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+      max-width: 100%;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+    }
+    #search-bar input[type="text"] {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      width: 250px;
+      min-width: 120px;
+      flex: 1 1 250px;
+      font-size: 14px;
+    }
+    #search-bar button {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      background: #555;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #search-bar button:hover:not(:disabled) {
+      background: #777;
+    }
+    #search-bar button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #search-bar label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+    #search-count {
+      min-width: 80px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ---------------- Highlights in the text layer ---------------- */
+    .textLayer .highlight {
+      background-color: rgba(255, 255, 0, 0.4);
+      border-radius: 2px;
+    }
+    .textLayer .highlight.selected {
+      background-color: rgba(255, 140, 0, 0.7);
+    }
+
+    /* ---------------- Viewer ---------------- */
+    #viewerContainer {
+      position: absolute;
+      top: 0;
+      left: 300px;
+      right: 0;
+      bottom: 0;
+      overflow: auto;
+      background-color: #525659;
+      padding-top: 60px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="results-panel">
+
+    <!-- ============ Tabs ============ -->
+    <div id="panel-tabs" role="tablist" aria-label="Sidebar panels">
+      <button id="tab-results" class="panel-tab active" role="tab"
+              aria-selected="true" aria-controls="results-list">Search</button>
+      <button id="tab-bookmarks" class="panel-tab" role="tab"
+              aria-selected="false" aria-controls="bookmarks-list">Bookmarks</button>
+    </div>
+
+    <div id="panel-header">
+      <span id="panel-label">Search results</span>
+      <span id="panel-count">0</span>
+    </div>
+
+    <div id="results-list" role="tabpanel" aria-labelledby="tab-results"></div>
+
+    <div id="bookmarks-list" role="tabpanel" aria-labelledby="tab-bookmarks" hidden></div>
+  </div>
+
+  <!-- ================= Toolbar ================= -->
+  <div id="toolbar">
+
+    <!-- Left-most gadget: open a local PDF file -->
+    <label id="file-open" title="Open a PDF file from your computer">
+      <input type="file" id="file-input" accept="application/pdf,.pdf" aria-label="Open a local PDF file" />
+      <span class="file-icon" aria-hidden="true">📂</span>
+      <span>Open PDF</span>
+    </label>
+
+    <span id="file-name"></span>
+
+    <!-- Search controls -->
+    <div id="search-bar">
+      <input type="text" id="search-input" placeholder="Search in document..." />
+      <button id="prev-btn" title="Previous Match" disabled>◀</button>
+      <button id="next-btn" title="Next Match" disabled>▶</button>
+      <span id="search-count">0 of 0</span>
+
+      <label title="Match Case">
+        <input type="checkbox" id="case-sensitive" /> Aa
+      </label>
+      <label title="Whole Word">
+        <input type="checkbox" id="entire-word" /> Word
+      </label>
+      <label title="Highlight All">
+        <input type="checkbox" id="highlight-all" checked /> Highlight All
+      </label>
+    </div>
+  </div>
+
+  <div id="viewerContainer">
+    <div id="viewer" class="pdfViewer"></div>
+  </div>
+
+  <script type="module">
+    // ----------------------------------------------------------------------
+    // 1. IMPORTS
+    // ----------------------------------------------------------------------
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs';
+
+    import {
+      EventBus,
+      PDFLinkService,
+      PDFFindController,
+      PDFViewer,
+      FindState,
+    } from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/web/pdf_viewer.mjs';
+
+    // ----------------------------------------------------------------------
+    // 2. Configuration
+    // ----------------------------------------------------------------------
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
+
+    const DEFAULT_PDF_URL =
+      'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf';
+
+    /* --- Viewer DOM (both are re-created for every opened document) --- */
+    let container = document.getElementById('viewerContainer');
+    let viewerEl  = document.getElementById('viewer');
+
+    /* --- Toolbar / search DOM --- */
+    const fileInput      = document.getElementById('file-input');
+    const fileNameEl     = document.getElementById('file-name');
+    const searchInput    = document.getElementById('search-input');
+    const prevBtn        = document.getElementById('prev-btn');
+    const nextBtn        = document.getElementById('next-btn');
+    const searchCountEl  = document.getElementById('search-count');
+    const caseSensitiveCb = document.getElementById('case-sensitive');
+    const entireWordCb   = document.getElementById('entire-word');
+    const highlightAllCb = document.getElementById('highlight-all');
+
+    /* --- Side panel DOM --- */
+    const tabResultsBtn   = document.getElementById('tab-results');
+    const tabBookmarksBtn = document.getElementById('tab-bookmarks');
+    const panelTabsEl     = document.getElementById('panel-tabs');
+    const panelLabelEl    = document.getElementById('panel-label');
+    const panelCountEl    = document.getElementById('panel-count');
+    const resultsList     = document.getElementById('results-list');
+    const bookmarksList   = document.getElementById('bookmarks-list');
+
+    // ----------------------------------------------------------------------
+    // 3. Viewer components – re-created for every document
+    // ----------------------------------------------------------------------
+    let eventBus = null;
+    let linkService = null;
+    let findController = null;
+    let pdfViewer = null;
+    let pdfDocument = null;
+
+    let loadSequence = 0;   // guards against overlapping "open" operations
+
+    function createViewer() {
+      eventBus = new EventBus();
+      linkService = new PDFLinkService({ eventBus });
+      findController = new PDFFindController({ linkService, eventBus });
+
+      pdfViewer = new PDFViewer({
+        container,
+        viewer: viewerEl,
+        eventBus,
+        linkService,
+        findController,
+      });
+
+      linkService.setViewer(pdfViewer);
+
+      eventBus.on('updatefindmatchescount', onFindMatchesCount);
+      eventBus.on('updatefindcontrolstate', onFindControlState);
+    }
+
+    /**
+     * Throw away the current viewer *and* its scroll container.  Replacing the
+     * DOM nodes guarantees that no page elements and no scroll listeners from
+     * the previous document survive the switch.
+     */
+    function destroyViewer() {
+      try { pdfViewer?.setDocument(null); } catch (e) { /* ignore */ }
+
+      pdfViewer = null;
+      linkService = null;
+      findController = null;
+      eventBus = null;
+
+      const newContainer = document.createElement('div');
+      newContainer.id = 'viewerContainer';
+
+      const newViewer = document.createElement('div');
+      newViewer.id = 'viewer';
+      newViewer.className = 'pdfViewer';
+      newContainer.appendChild(newViewer);
+
+      container.replaceWith(newContainer);
+
+      container = newContainer;
+      viewerEl = newViewer;
+    }
+
+    // ----------------------------------------------------------------------
+    // 4. Loading a document (from a URL or from a local file)
+    // ----------------------------------------------------------------------
+    /**
+     * @param {string|{data: Uint8Array}|{url: string}} source
+     * @param {string} [displayName] shown next to the "Open PDF" button
+     */
+    async function openDocument(source, displayName = '') {
+      const seq = ++loadSequence;
+
+      resetSearchState();
+      clearBookmarksPanel();
+      destroyViewer();
+      createViewer();
+
+      // --- loading UI ---
+      searchInput.disabled = true;
+      fileInput.disabled = true;
+      setFileName(displayName);
+      searchCountEl.textContent = 'Loading…';
+      prevBtn.disabled = true;
+      nextBtn.disabled = true;
+
+      // Release the previous document (terminates its worker).
+      const previousDoc = pdfDocument;
+      pdfDocument = null;
+      if (previousDoc) {
+        previousDoc.destroy().catch(() => { /* ignore */ });
+      }
+
+      try {
+        const doc = await pdfjsLib.getDocument(source).promise;
+        if (seq !== loadSequence) {          // a newer open() won the race
+          doc.destroy().catch(() => {});
+          return;
+        }
+
+        pdfDocument = doc;
+
+        pdfViewer.setDocument(doc);
+        linkService.setDocument(doc, null);
+        findController.setDocument(doc);
+
+        searchStatus = 'idle';
+        renderCounter();
+
+        searchInput.disabled = false;
+        searchInput.focus();
+
+        console.log('PDF loaded successfully:', displayName || '(default document)');
+
+        // Outline / bookmarks for the left panel.
+        loadBookmarks(seq).catch(err =>
+          console.error('Could not build the bookmark list:', err));
+
+        // Warm up the text index so that the first search is instant.
+        ensureTextExtracted().catch(err =>
+          console.error('Text extraction failed:', err));
+      } catch (error) {
+        if (seq !== loadSequence) return;
+        console.error('Error loading PDF:', error);
+        searchCountEl.textContent = 'Error loading PDF';
+      } finally {
+        if (seq === loadSequence) fileInput.disabled = false;
+      }
+    }
+
+    function setFileName(name) {
+      fileNameEl.textContent = name || '';
+      fileNameEl.title = name || '';
+    }
+
+    /* --- Local file picker --- */
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';            // allow re-selecting the same file later
+      if (!file) return;
+
+      if (file.type && file.type !== 'application/pdf' &&
+          !/\.pdf$/i.test(file.name)) {
+        console.warn('Selected file does not look like a PDF:', file.name);
+      }
+
+      try {
+        const data = new Uint8Array(await file.arrayBuffer());
+        await openDocument({ data }, file.name);
+      } catch (err) {
+        console.error('Could not read the selected file:', err);
+        searchCountEl.textContent = 'Could not open file';
+        setFileName('');
+        fileInput.disabled = false;
+      }
+    });
+
+    // ----------------------------------------------------------------------
+    // 5. Side panel tabs
+    // ----------------------------------------------------------------------
+    let activeTab = 'results';      // 'results' | 'bookmarks'
+    let bookmarkCount = 0;
+    let outlineItems = [];
+    let activeBookmarkRow = null;
+
+    function updatePanelHeader() {
+      if (activeTab === 'bookmarks') {
+        panelLabelEl.textContent = 'Bookmarks';
+        panelCountEl.textContent = String(bookmarkCount);
+      } else {
+        panelLabelEl.textContent = 'Search results';
+        panelCountEl.textContent = String(allMatches.length);
+      }
+    }
+
+    function switchTab(tab) {
+      if (tab === activeTab) return;
+      activeTab = tab;
+
+      const showBookmarks = tab === 'bookmarks';
+
+      tabResultsBtn.classList.toggle('active', !showBookmarks);
+      tabBookmarksBtn.classList.toggle('active', showBookmarks);
+      tabResultsBtn.setAttribute('aria-selected', String(!showBookmarks));
+      tabBookmarksBtn.setAttribute('aria-selected', String(showBookmarks));
+
+      resultsList.hidden = showBookmarks;
+      bookmarksList.hidden = !showBookmarks;
+
+      updatePanelHeader();
+    }
+
+    tabResultsBtn.addEventListener('click', () => switchTab('results'));
+    tabBookmarksBtn.addEventListener('click', () => switchTab('bookmarks'));
+
+    panelTabsEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const next = activeTab === 'results' ? 'bookmarks' : 'results';
+      switchTab(next);
+      (next === 'results' ? tabResultsBtn : tabBookmarksBtn).focus();
+    });
+
+    // ----------------------------------------------------------------------
+    // 6. Bookmarks (document outline)
+    // ----------------------------------------------------------------------
+    /**
+     * Flat, depth-first ordered list of records – one per outline entry.
+     * Each record keeps a link to its DOM row, its children and the position
+     * where its section starts (used to count search hits per section).
+     *
+     * record = {
+     *   item, row, badge, parent, children[],
+     *   pageIndex,   // 0-based page of the destination (null if unknown)
+     *   pdfY,        // destination "top" in PDF user space (null if unknown)
+     *   globalStart, // start offset in the whole-document text (null if unknown)
+     *   ownCount,    // matches in this bookmark's own (non-overlapping) range
+     *   totalCount,  // ownCount + matches of all descendants
+     *   hasChildren, // whether this node has child bookmark entries
+     *   setExpanded, // function(value) that folds/unfolds the children
+     * }
+     */
+    let bookmarkRecords = [];
+    let countUpdateToken = 0;
+
+    function clearBookmarksPanel() {
+      bookmarksList.textContent = '';
+      outlineItems = [];
+      bookmarkCount = 0;
+      activeBookmarkRow = null;
+      bookmarkRecords = [];
+      countUpdateToken++;
+      updatePanelHeader();
+    }
+
+    function countBookmarks(items) {
+      let n = 0;
+      for (const item of items || []) {
+        n += 1;
+        if (Array.isArray(item.items) && item.items.length) {
+          n += countBookmarks(item.items);
+        }
+      }
+      return n;
+    }
+
+    async function loadBookmarks(seq) {
+      clearBookmarksPanel();
+
+      if (!pdfDocument) return;
+
+      let outline = null;
+      try {
+        outline = await pdfDocument.getOutline();
+      } catch (err) {
+        console.error('Could not read the document outline:', err);
+      }
+
+      if (seq !== undefined && seq !== loadSequence) return;   // superseded
+
+      outlineItems = Array.isArray(outline) ? outline : [];
+      bookmarkCount = countBookmarks(outlineItems);
+      updatePanelHeader();
+
+      if (!outlineItems.length) {
+        const empty = document.createElement('div');
+        empty.className = 'results-empty';
+        empty.textContent = 'This document has no bookmarks.';
+        bookmarksList.appendChild(empty);
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+      for (const item of outlineItems) {
+        frag.appendChild(createBookmarkNode(item, 0, null));
+      }
+      bookmarksList.appendChild(frag);
+
+      // Find out where every section starts so that search hits can be
+      // attributed to the right bookmark.
+      await resolveBookmarkPositions();
+      if (seq !== undefined && seq !== loadSequence) return;
+
+      updateBookmarkCounts().catch(err =>
+        console.error('Could not count matches per bookmark:', err));
+    }
+
+    function setActiveBookmark(row) {
+      if (activeBookmarkRow === row) return;
+      if (activeBookmarkRow) activeBookmarkRow.classList.remove('active');
+      activeBookmarkRow = row;
+      if (row) row.classList.add('active');
+    }
+
+    function createBookmarkNode(item, depth, parentRecord) {
+      const wrap = document.createElement('div');
+      wrap.className = 'bookmark-node';
+
+      const children = Array.isArray(item.items) ? item.items : [];
+      const hasChildren = children.length > 0;
+
+      const row = document.createElement('div');
+      row.className = 'bookmark-row';
+      row.tabIndex = 0;
+      row.setAttribute('role', 'treeitem');
+      row.style.paddingLeft = `${10 + depth * 14}px`;
+
+      const toggle = document.createElement('span');
+      toggle.className = 'bookmark-toggle' + (hasChildren ? '' : ' leaf');
+      toggle.setAttribute('aria-hidden', 'true');
+      row.appendChild(toggle);
+
+      const title = document.createElement('span');
+      title.className = 'bookmark-title';
+      title.textContent = item.title || '(untitled)';
+      row.appendChild(title);
+
+      // Badge that will show how many search hits live in this section.
+      // Parent sections get the blue ring, very-sub (leaf) sections orange.
+      const badge = document.createElement('span');
+      badge.className = 'bookmark-count ' + (hasChildren ? 'parent' : 'leaf');
+      badge.hidden = true;
+      row.appendChild(badge);
+
+      wrap.appendChild(row);
+
+      const record = {
+        item,
+        row,
+        badge,
+        parent: parentRecord || null,
+        children: [],
+        pageIndex: null,
+        pdfY: null,
+        globalStart: null,
+        ownCount: 0,
+        totalCount: 0,
+        hasChildren,          // NEW
+        setExpanded: null,    // NEW – assigned below for nodes with children
+      };
+      if (parentRecord) parentRecord.children.push(record);
+      bookmarkRecords.push(record);     // pre-order == document order
+
+      let childrenEl = null;
+      let expanded = true;
+
+      if (hasChildren) {
+        childrenEl = document.createElement('div');
+        childrenEl.className = 'bookmark-children';
+        childrenEl.setAttribute('role', 'group');
+        for (const child of children) {
+          childrenEl.appendChild(createBookmarkNode(child, depth + 1, record));
+        }
+        wrap.appendChild(childrenEl);
+      }
+
+      const setExpanded = (value) => {
+        expanded = value;
+        if (childrenEl) childrenEl.hidden = !expanded;
+        toggle.textContent = expanded ? '▾' : '▸';
+        row.setAttribute('aria-expanded', String(expanded));
+      };
+
+      if (hasChildren) {
+        // Expose the fold helper so that the match counters can fold the
+        // branches that contain no hits and expand the ones that do.
+        record.setExpanded = setExpanded;
+        setExpanded(true);
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          setExpanded(!expanded);
+        });
+      }
+
+      const activate = () => {
+        setActiveBookmark(row);
+        navigateToBookmark(item);
+      };
+
+      row.addEventListener('click', activate);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        } else if (e.key === 'ArrowRight' && hasChildren && !expanded) {
+          e.preventDefault();
+          setExpanded(true);
+        } else if (e.key === 'ArrowLeft' && hasChildren && expanded) {
+          e.preventDefault();
+          setExpanded(false);
+        }
+      });
+
+      return wrap;
+    }
+
+    /** Resolve a destination's first element (a page index or a Ref). */
+    async function resolvePageIndex(ref) {
+      if (typeof ref === 'number' && Number.isFinite(ref)) return ref;
+      if (ref && typeof ref === 'object') {
+        try {
+          return await pdfDocument.getPageIndex(ref);
+        } catch (err) {
+          return null;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Turn a bookmark destination into `{ pageIndex, pdfY }`.
+     * `pdfY` is the destination "top" in PDF user space (null when the
+     * destination does not carry a vertical position).
+     */
+    async function resolveDestPosition(dest) {
+      if (dest == null || !pdfDocument) return null;
+
+      if (typeof dest === 'string') {
+        try {
+          dest = await pdfDocument.getDestination(dest);
+        } catch (err) {
+          return null;
+        }
+        if (dest == null) return null;
+      }
+
+      if (!Array.isArray(dest)) {
+        // Rare fallback: destinations expressed as { pageNumber }.
+        if (dest && typeof dest === 'object' && Number.isInteger(dest.pageNumber)) {
+          return { pageIndex: dest.pageNumber - 1, pdfY: null };
+        }
+        return null;
+      }
+
+      const pageIndex = await resolvePageIndex(dest[0]);
+      if (pageIndex === null) return null;
+
+      let pdfY = null;
+      const kind = typeof dest[1] === 'string'
+        ? dest[1]
+        : (dest[1] && dest[1].name);
+
+      if (kind === 'XYZ') {
+        if (Number.isFinite(dest[3])) pdfY = dest[3];
+      } else if (kind === 'FitH' || kind === 'FitBH') {
+        if (Number.isFinite(dest[2])) pdfY = dest[2];
+      }
+
+      return { pageIndex, pdfY };
+    }
+
+    /** Resolve page + vertical position for every outline entry. */
+    async function resolveBookmarkPositions() {
+      if (!pdfDocument) return;
+
+      await Promise.all(bookmarkRecords.map(async (record) => {
+        const pos = await resolveDestPosition(record.item.dest);
+        if (pos) {
+          record.pageIndex = pos.pageIndex;
+          record.pdfY = pos.pdfY;
+        }
+      }));
+    }
+
+    async function navigateToBookmark(item) {
+      if (!pdfDocument) return;
+
+      // External links in an outline open in a new tab.
+      if (item.url) {
+        window.open(item.url, '_blank', 'noopener');
+        return;
+      }
+
+      let dest = item.dest;
+      if (dest == null) return;
+
+      // Named destination -> explicit destination array.
+      if (typeof dest === 'string') {
+        try {
+          dest = await pdfDocument.getDestination(dest);
+        } catch (err) {
+          dest = null;
+        }
+      }
+
+      if (Array.isArray(dest)) {
+        const pageIndex = await resolvePageIndex(dest[0]);
+        try {
+          linkService.goToDestination(dest);
+          return;
+        } catch (err) {
+          console.error('Could not follow bookmark destination:', err);
+          if (pageIndex !== null) pdfViewer.currentPageNumber = pageIndex + 1;
+          return;
+        }
+      }
+
+      // Rare fallback: destinations expressed as { pageNumber }.
+      if (dest && typeof dest === 'object' && Number.isInteger(dest.pageNumber)) {
+        pdfViewer.currentPageNumber = dest.pageNumber;
+      }
+    }
+
+    // ----------------------------------------------------------------------
+    // 7. Search state
+    // ----------------------------------------------------------------------
+    const searchState = {
+      query: '',
+      caseSensitive: false,
+      entireWord: false,
+      highlightAll: true,
+      matchDiacritics: false,
+    };
+
+    // 'idle' | 'pending' | 'notfound' | 'ok'
+    let searchStatus = 'idle';
+    let lastMatches = { current: 0, total: 0 };
+
+    /**
+     * Single place that renders the "x of y" label + button states.
+     */
+    function renderCounter() {
+      if (searchStatus === 'idle') {
+        searchCountEl.textContent = '0 of 0';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+      } else if (searchStatus === 'pending') {
+        searchCountEl.textContent = 'Searching...';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+      } else if (searchStatus === 'notfound') {
+        searchCountEl.textContent = 'No results';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+      } else {
+        searchCountEl.textContent = `${lastMatches.current} of ${lastMatches.total}`;
+        prevBtn.disabled = false;
+        nextBtn.disabled = false;
+      }
+    }
+
+    function storeMatchesCount(matchesCount) {
+      if (!matchesCount) return;
+      lastMatches = {
+        current: Number(matchesCount.current) || 0,
+        total: Number(matchesCount.total) || 0,
+      };
+    }
+
+    // ----------------------------------------------------------------------
+    // 8. Text extraction, matching and the results list
+    //
+    //  We extract the text of every page ourselves so that we can show a
+    //  page number + a context snippet for each hit.  PDF.js itself joins the
+    //  `str` of every text item with no separator (that is also what the text
+    //  layer does, which is why match offsets line up), so we do exactly the
+    //  same – this guarantees that our match ordering (page by page, then
+    //  left-to-right) is identical to the find controller's ordering.
+    //
+    //  While extracting we also record the vertical position of every text
+    //  item.  That lets us translate a bookmark destination (page + y) into a
+    //  character offset inside the page, which is what makes per-section
+    //  match counting work even when several sections share a page.
+    // ----------------------------------------------------------------------
+    const CONTEXT_CHARS = 45;   // characters of context on each side
+    const MAX_RESULTS   = 5000; // safety cap for pathological documents
+
+    let textPromise = null;     // Promise resolving to the per-page texts
+    let pageTexts   = [];       // [{ text, normalized, items, transform, start }]
+    let allMatches  = [];       // [{ pageIndex, start, end, before, match, after, global }]
+    let isProgrammaticJump = false;
+
+    // Character level normalisation – 1:1 replacements only, so a match
+    // offset in the normalised string is the same offset in the raw string.
+    const CHAR_MAP = {
+      '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'", '\u2032': "'",
+      '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"', '\u2033': '"',
+      '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2013': '-',
+      '\u2014': '-', '\u2015': '-', '\u2212': '-',
+      '\u00A0': ' ', '\u2007': ' ', '\u2009': ' ', '\u200A': ' ', '\u202F': ' ',
+    };
+
+    function normalizeForSearch(text) {
+      let out = '';
+      for (let i = 0; i < text.length; i++) {
+        let ch = text[i];
+        const mapped = CHAR_MAP[ch];
+        if (mapped !== undefined) {
+          ch = mapped;
+        } else if (ch.charCodeAt(0) > 0x7f) {
+          // Strip diacritics 1:1 (é -> e) so lengths stay aligned.
+          const decomposed = ch.normalize('NFD');
+          if (decomposed && decomposed.charCodeAt(0) !== ch.charCodeAt(0)) {
+            ch = decomposed[0];
+          }
+        }
+        out += ch;
+      }
+      return out;
+    }
+
+    async function extractDocumentText(doc) {
+      const pages = [];
+      let start = 0;
+
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const viewport = page.getViewport({ scale: 1 });
+        const m = viewport.transform;
+
+        const items = [];
+        let text = '';
+
+        for (const item of content.items) {
+          if (typeof item.str !== 'string') continue;
+          if (item.str.length) {
+            const t = item.transform;
+            // Device-space y (measured from the top of the page) of the
+            // item's baseline – same space we later map destinations into.
+            const y = m[1] * t[4] + m[3] * t[5] + m[5];
+            items.push({ start: text.length, y });
+          }
+          text += item.str;
+        }
+
+        pages.push({
+          text,
+          normalized: normalizeForSearch(text),
+          items,
+          transform: m,
+          start,                     // offset of this page in the whole text
+        });
+
+        start += text.length;
+      }
+
+      pageTexts = pages;
+      return pages;
+    }
+
+    function ensureTextExtracted() {
+      if (!textPromise) {
+        textPromise = pdfDocument
+          ? extractDocumentText(pdfDocument)
+          : Promise.resolve([]);
+      }
+      return textPromise;
+    }
+
+    /** Build the RegExp used for our own matching (mirrors PDF.js options). */
+    function buildSearchRegex(normalizedQuery, opts) {
+      const escaped = normalizedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      let pattern = escaped.replace(/\s+/g, '\\s+');
+      if (opts.entireWord) {
+        pattern = `(?<![\\p{L}\\p{N}])${pattern}(?![\\p{L}\\p{N}])`;
+      }
+      return new RegExp(pattern, opts.caseSensitive ? 'gu' : 'giu');
+    }
+
+    function makeResult(pageIndex, text, start, end) {
+      const from = Math.max(0, start - CONTEXT_CHARS);
+      const to   = Math.min(text.length, end + CONTEXT_CHARS);
+
+      let before = text.slice(from, start);
+      let after  = text.slice(end, to);
+
+      // Don't show half-cut words at the edges.
+      if (from > 0) {
+        const sp = before.indexOf(' ');
+        before = sp !== -1 ? before.slice(sp + 1) : '';
+      }
+      if (to < text.length) {
+        const sp = after.lastIndexOf(' ');
+        after = sp !== -1 ? after.slice(0, sp) : '';
+      }
+
+      before = before.replace(/\s+/g, ' ');
+      after  = after.replace(/\s+/g, ' ');
+
+      let matched = text.slice(start, end).replace(/\s+/g, ' ').trim();
+      if (matched.length > 120) matched = matched.slice(0, 120) + '…';
+
+      return {
+        pageIndex,
+        start,
+        end,
+        before: (from > 0 && before ? '… ' : '') + before,
+        match: matched,
+        after: after + (to < text.length && after ? ' …' : ''),
+      };
+    }
+
+    function computeMatches() {
+      allMatches = [];
+      const normalizedQuery = normalizeForSearch(searchState.query || '');
+      if (!normalizedQuery || !pageTexts.length) return;
+
+      const re = buildSearchRegex(normalizedQuery, searchState);
+
+      for (let p = 0; p < pageTexts.length && allMatches.length < MAX_RESULTS; p++) {
+        const { text, normalized } = pageTexts[p];
+        const pageStart = pageTexts[p].start || 0;
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(normalized)) !== null) {
+          if (m[0].length === 0) { re.lastIndex++; continue; } // safety
+          const result = makeResult(p, text, m.index, m.index + m[0].length);
+          // Offset inside the concatenated text of the whole document.
+          result.global = pageStart + m.index;
+          allMatches.push(result);
+          if (allMatches.length >= MAX_RESULTS) break;
+        }
+      }
+    }
+
+    // ---------------- Results list rendering ----------------
+    function renderResults() {
+      resultsList.textContent = '';
+      updatePanelHeader();
+
+      if (!allMatches.length) {
+        const empty = document.createElement('div');
+        empty.className = 'results-empty';
+        empty.textContent = searchState.query
+          ? 'No matches found.'
+          : 'Type in the search box to see every occurrence listed here.';
+        resultsList.appendChild(empty);
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+
+      allMatches.forEach((r, index) => {
+        const item = document.createElement('div');
+        item.className = 'result-item';
+        item.dataset.index = String(index);
+
+        const pageLabel = document.createElement('div');
+        pageLabel.className = 'result-page';
+        pageLabel.textContent = `Page ${r.pageIndex + 1}`;
+
+        const snippet = document.createElement('div');
+        snippet.className = 'result-snippet';
+        snippet.appendChild(document.createTextNode(r.before));
+
+        const mark = document.createElement('mark');
+        mark.textContent = r.match;
+        snippet.appendChild(mark);
+
+        snippet.appendChild(document.createTextNode(r.after));
+
+        item.appendChild(pageLabel);
+        item.appendChild(snippet);
+        item.addEventListener('click', () => goToMatch(index));
+
+        frag.appendChild(item);
+      });
+
+      resultsList.appendChild(frag);
+    }
+
+    function setActiveResult(index) {
+      const items = resultsList.querySelectorAll('.result-item');
+      let active = null;
+
+      items.forEach(el => {
+        const isActive = Number(el.dataset.index) === index;
+        el.classList.toggle('active', isActive);
+        if (isActive) active = el;
+      });
+
+      if (active) active.scrollIntoView({ block: 'nearest' });
+    }
+
+    // ---------------- Jumping to a specific occurrence ----------------
+    /**
+     * PDF.js's find controller only exposes "go to next / previous" through
+     * the public event bus, so we walk from the current match to the wanted
+     * one with `findagain` events – always taking the shorter direction.
+     * Both events are handled synchronously by the find controller, so the
+     * loop completes before the browser paints.
+     */
+    function goToMatch(targetIndex) {
+      const total = allMatches.length;
+      if (!total || searchStatus === 'pending') return;
+
+      const target = allMatches[targetIndex];
+      if (!target) return;
+
+      const currentIndex = lastMatches.current > 0 ? lastMatches.current - 1 : -1;
+
+      let steps = 0;
+      let backwards = false;
+
+      if (currentIndex === targetIndex) {
+        steps = 0;
+      } else if (currentIndex < 0) {
+        // Nothing selected yet – walk forward from the beginning.
+        steps = targetIndex + 1;
+      } else {
+        const forward  = (targetIndex - currentIndex + total) % total;
+        const backward = total - forward;
+        backwards = backward < forward;
+        steps = backwards ? backward : forward;
+      }
+
+      if (steps > 0) {
+        isProgrammaticJump = true;
+        for (let i = 0; i < steps; i++) dispatchFind('again', backwards);
+        isProgrammaticJump = false;
+      }
+
+      setActiveResult(targetIndex);
+      scrollToMatchIntoView(target.pageIndex);
+    }
+
+    /**
+     * Make sure the selected highlight is actually on screen.  Pages are
+     * rendered lazily, so we retry for a short while until the text layer of
+     * the target page exists.
+     */
+    function scrollToMatchIntoView(pageIndex, attempt = 0) {
+      const pageView = pdfViewer?.getPageView(pageIndex);
+      const selected = pageView?.div?.querySelector('.highlight.selected');
+
+      if (selected) {
+        selected.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+
+      if (attempt === 0) {
+        // Page is not rendered yet – scroll the container to it first.
+        if (pdfViewer) pdfViewer.currentPageNumber = pageIndex + 1;
+      }
+
+      if (attempt < 12) {
+        setTimeout(() => scrollToMatchIntoView(pageIndex, attempt + 1), 50);
+      }
+    }
+
+    // ----------------------------------------------------------------------
+    // 9. Per-bookmark match counters
+    // ----------------------------------------------------------------------
+    /**
+     * Convert the destination "top" of a page into the character offset of the
+     * first text item that starts at or below it.
+     */
+    function pageOffsetForY(page, pdfY) {
+      if (!page || !page.items.length) return 0;
+
+      const m = page.transform;
+      const deviceY = m[1] * 0 + m[3] * pdfY + m[5];   // x = 0
+      const EPS = 2;                                    // points of tolerance
+
+      for (const item of page.items) {                  // stream == reading order
+        if (item.y >= deviceY - EPS) return item.start;
+      }
+      return page.text.length;
+    }
+
+    /** Fill in `globalStart` for every bookmark that has a known destination. */
+    function computeBookmarkStarts() {
+      for (const record of bookmarkRecords) {
+        const p = record.pageIndex;
+        if (p == null || p < 0 || p >= pageTexts.length) {
+          record.globalStart = null;
+          continue;
+        }
+        const page = pageTexts[p];
+        const offset = record.pdfY == null
+          ? 0
+          : Math.min(pageOffsetForY(page, record.pdfY), page.text.length);
+        record.globalStart = page.start + offset;
+      }
+    }
+
+    /** ownCount + sum of descendants' counts, computed bottom-up. */
+    function computeBookmarkTotals() {
+      const walk = (record) => {
+        let total = record.ownCount;
+        for (const child of record.children) total += walk(child);
+        record.totalCount = total;
+        return total;
+      };
+      for (const record of bookmarkRecords) {
+        if (!record.parent) walk(record);
+      }
+    }
+
+    function renderBookmarkCounts() {
+      for (const record of bookmarkRecords) {
+        const n = record.totalCount || 0;
+        if (n > 0) {
+          record.badge.textContent = String(n);
+          record.badge.hidden = false;
+          record.badge.title =
+            n === 1 ? '1 match in this section' : `${n} matches in this section`;
+        } else {
+          record.badge.textContent = '';
+          record.badge.hidden = true;
+          record.badge.removeAttribute('title');
+        }
+      }
+    }
+
+    function clearBookmarkCounts() {
+      for (const record of bookmarkRecords) {
+        record.ownCount = 0;
+        record.totalCount = 0;
+      }
+      renderBookmarkCounts();
+    }
+
+    /**
+     * Fold every (sub)section that contains no matches – neither of its own
+     * nor in any descendant – and expand every section that does contain
+     * matches, so the tree only shows the branches leading to search hits.
+     *
+     * `totalCount` is used (not `ownCount`), so a parent whose *children*
+     * hold the hits is expanded as well.  When no search is active the whole
+     * tree is expanded again.
+     */
+    function applyBookmarkExpansion() {
+      const hasMatches = !!searchState.query && allMatches.length > 0;
+
+      for (const record of bookmarkRecords) {
+        if (!record.setExpanded) continue;      // leaf – nothing to fold
+        record.setExpanded(!hasMatches || record.totalCount > 0);
+      }
+    }
+
+    /**
+     * Recompute how many search hits fall inside every bookmark section.
+     *
+     * Sections are treated as a partition of the document: a bookmark owns the
+     * text from its own start up to the start of the next bookmark (in
+     * document order).  A parent's badge then shows its own hits plus those of
+     * all of its children, which is what you want when scanning a tree.
+     */
+    async function updateBookmarkCounts() {
+      if (!bookmarkRecords.length) return;
+
+      const token = ++countUpdateToken;
+
+      if (!searchState.query || !allMatches.length) {
+        clearBookmarkCounts();
+        applyBookmarkExpansion();      // NEW – show the full tree again
+        return;
+      }
+
+      try {
+        await ensureTextExtracted();
+      } catch (err) {
+        console.error('Could not extract text for bookmark counts:', err);
+        return;
+      }
+      if (token !== countUpdateToken) return;   // superseded by a newer update
+
+      computeBookmarkStarts();
+
+      const positioned = bookmarkRecords
+        .filter(record => record.globalStart != null)
+        .sort((a, b) => a.globalStart - b.globalStart);
+
+      for (const record of bookmarkRecords) record.ownCount = 0;
+
+      // `allMatches` is already sorted by its global offset, so a single
+      // forward sweep is enough.
+      let matchIndex = 0;
+      for (let i = 0; i < positioned.length; i++) {
+        const start = positioned[i].globalStart;
+        const end = i + 1 < positioned.length
+          ? positioned[i + 1].globalStart
+          : Infinity;
+
+        while (matchIndex < allMatches.length &&
+               allMatches[matchIndex].global < start) {
+          matchIndex++;
+        }
+
+        let count = 0;
+        let k = matchIndex;
+        while (k < allMatches.length && allMatches[k].global < end) {
+          count++;
+          k++;
+        }
+        positioned[i].ownCount = count;
+      }
+
+      computeBookmarkTotals();
+      renderBookmarkCounts();
+      applyBookmarkExpansion();        // NEW – fold empty branches
+    }
+
+    // ----------------------------------------------------------------------
+    // 10. Dispatching "find" events
+    // ----------------------------------------------------------------------
+    function dispatchFind(type, findPrevious = false) {
+      if (!eventBus) return;
+      eventBus.dispatch('find', {
+        type,
+        query: searchState.query,
+        caseSensitive: searchState.caseSensitive,
+        entireWord: searchState.entireWord,
+        highlightAll: searchState.highlightAll,
+        matchDiacritics: searchState.matchDiacritics,
+        findPrevious,
+      });
+    }
+
+    function syncOptionsFromUI() {
+      searchState.caseSensitive = caseSensitiveCb.checked;
+      searchState.entireWord    = entireWordCb.checked;
+      searchState.highlightAll  = highlightAllCb.checked;
+    }
+
+    function clearSearch() {
+      searchState.query = '';
+      searchStatus = 'idle';
+      lastMatches = { current: 0, total: 0 };
+      allMatches = [];
+
+      renderCounter();
+      renderResults();
+      updateBookmarkCounts().catch(() => { /* ignore */ });
+
+      if (eventBus) {
+        eventBus.dispatch('find', {
+          type: '',
+          query: '',
+          caseSensitive: false,
+          entireWord: false,
+          highlightAll: false,
+          matchDiacritics: false,
+          findPrevious: false,
+        });
+      }
+    }
+
+    async function performSearch() {
+      if (!pdfDocument) return;      // nothing loaded (yet)
+
+      syncOptionsFromUI();
+      searchState.query = searchInput.value;
+
+      if (!searchState.query) {
+        clearSearch();
+        return;
+      }
+
+      searchStatus = 'pending';
+      renderCounter();
+
+      // Build our own list of hits (page number + snippet).
+      try {
+        await ensureTextExtracted();
+      } catch (err) {
+        console.error('Could not extract text for the results list:', err);
+      }
+      computeMatches();
+      renderResults();
+      updateBookmarkCounts().catch(() => { /* ignore */ });
+
+      // Let PDF.js do the real search / highlighting / navigation.
+      dispatchFind('');
+    }
+
+    /** Recompute the list after an option change, without a new query. */
+    function refreshResultsForOptionChange() {
+      if (!searchState.query) return;
+      computeMatches();
+      renderResults();
+      updateBookmarkCounts().catch(() => { /* ignore */ });
+    }
+
+    function findNext() {
+      if (!searchState.query || !pdfDocument) return;
+      dispatchFind('again', false);
+    }
+
+    function findPrevious() {
+      if (!searchState.query || !pdfDocument) return;
+      dispatchFind('again', true);
+    }
+
+    // ----------------------------------------------------------------------
+    // 11. Listen to find events
+    // ----------------------------------------------------------------------
+    function onFindMatchesCount({ matchesCount }) {
+      storeMatchesCount(matchesCount);
+      if (lastMatches.total > 0) {
+        searchStatus = 'ok';
+      }
+      renderCounter();
+    }
+
+    function onFindControlState({ state, matchesCount }) {
+      storeMatchesCount(matchesCount);
+
+      switch (state) {
+        case FindState.PENDING:
+          searchStatus = 'pending';
+          break;
+        case FindState.NOT_FOUND:
+          searchStatus = 'notfound';
+          break;
+        case FindState.FOUND:
+        case FindState.WRAPPED:
+          searchStatus = lastMatches.total > 0 ? 'ok' : 'notfound';
+          break;
+      }
+
+      renderCounter();
+
+      // Keep the list selection in sync (unless we are the ones driving it).
+      if (!isProgrammaticJump && allMatches.length && lastMatches.current > 0) {
+        const index = (lastMatches.current - 1) % allMatches.length;
+        setActiveResult(index);
+      }
+    }
+
+    // ----------------------------------------------------------------------
+    // 12. DOM event listeners
+    // ----------------------------------------------------------------------
+    let searchTimeout = null;
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+
+      clearTimeout(searchTimeout);
+
+      if (!searchInput.value) {
+        clearSearch();
+      } else if (searchInput.value === searchState.query) {
+        findNext();
+      } else {
+        performSearch();
+      }
+    });
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(performSearch, 300);
+    });
+
+    prevBtn.addEventListener('click', findPrevious);
+    nextBtn.addEventListener('click', findNext);
+
+    caseSensitiveCb.addEventListener('change', () => {
+      searchState.caseSensitive = caseSensitiveCb.checked;
+      if (searchState.query) {
+        refreshResultsForOptionChange();
+        dispatchFind('casesensitivitychange');
+      }
+    });
+
+    entireWordCb.addEventListener('change', () => {
+      searchState.entireWord = entireWordCb.checked;
+      if (searchState.query) {
+        refreshResultsForOptionChange();
+        dispatchFind('entirewordchange');
+      }
+    });
+
+    highlightAllCb.addEventListener('change', () => {
+      searchState.highlightAll = highlightAllCb.checked;
+      if (searchState.query) dispatchFind('highlightallchange');
+    });
+
+    // ----------------------------------------------------------------------
+    // 13. Initialize
+    // ----------------------------------------------------------------------
+    /** Reset everything that belongs to the previously opened document. */
+    function resetSearchState() {
+      clearTimeout(searchTimeout);
+      searchState.query = '';
+      searchStatus = 'idle';
+      lastMatches = { current: 0, total: 0 };
+      allMatches = [];
+      pageTexts = [];
+      textPromise = null;
+      isProgrammaticJump = false;
+      searchInput.value = '';
+      renderCounter();
+      renderResults();
+    }
+
+    searchInput.disabled = true;
+    renderCounter();
+    renderResults();
+    clearBookmarksPanel();
+    openDocument(DEFAULT_PDF_URL);
+  </script>
+</body>
+</html>
